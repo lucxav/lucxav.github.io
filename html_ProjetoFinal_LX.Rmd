@@ -1,0 +1,497 @@
+---
+title: "Perfil Musical a partir de dados da base Last.Fm"
+author: "Lucas Xavier"
+date: "`r Sys.Date()`"
+output:
+   rmdformats::material:
+    highlight: kate
+---
+
+```{r setup, include =FALSE}
+knitr::opts_chunk$set(echo=TRUE)
+```
+
+
+# Objetivo
+
+Este é um relatório elaborado como projeto final do curso 'R para Ciência de Dados I', da curso-r. Neste relatório eu busco levantar e analisar dados pessoais referentes a histórico de músicas documentadas na plataforma “Last.fm”, com o objetivo de traçar o meu perfil musical principalmente no período de 2020/2021. 
+
+Serão avaliadas informações como artistas, álbuns e músicas mais escutadas, bem como,  a quantidade de vezes que cada um desses foi escutado, estabelecendo-se um perfil de preferência/gosto musical. 
+
+
+# Contextualização 
+
+A base de dados utilizada é referente ao portal Last.fm, esse é um site com função de rádio online que visa gerar uma comunidade centrada e fundada com base em música. O site foi fundado em 2002, no Reino Unido, e atualmente representa uma das principais plataformas sociais voltadas para música na internet com um contingente de usuários que datam de mais de 40 milhões no mundo e com uma contagem de scrobbles que totalizam mais de 96 bilhões desde 2003 (showmetech, 2021).
+ 
+Uma das ferramentas disponibilizadas pela plataforma e que gera um atrativo entre os usuários são as contagens de “streams”, ou, basicamente, o número de vezes que você escuta uma faixa de música. A partir desses dados o próprio site realiza estudos estatísticos que permitem avaliar seus artistas, faixas e álbuns mais escutados em diferentes períodos de tempo.  
+
+A base de dados para o relatório foi extraída do próprio site através do meu nome de usuário por meio do portal (https://mainstream.ghan.nl/export.html) que permite exportar o seu histórico de músicas em ".csv" ou outros formatos. 
+
+
+
+
+
+
+
+
+# Banco de Dados
+
+O Banco de dados utilizado apresenta informações referentes ao período de dezembro de 2019 até
+outubro de 2021. A seguir é apresentado uma amostra dos dados mais recentes, primeiras 30 linhas 
+do total de 31.439 linhas, a fim de se entender a sua construção e disposição dos dados. 
+
+
+```{r, message = FALSE, warning=FALSE, echo = FALSE}
+
+library(tidyverse)
+library(dplyr)
+library(readxl)
+library(DT)
+library(ggrepel)
+```
+
+```{r, echo=FALSE}
+
+scrobbles <- read.csv("../projeto_2021/scrobbles_nov.csv") %>%  slice(-(1:136))
+
+```
+
+```{r, message = FALSE, warning=FALSE, echo = FALSE, fig.height=10, fig.width=8}
+base_dados <- scrobbles %>% select(-uts, -album_mbid, -artist_mbid, -track_mbid) %>% 
+  separate(utc_time,c('dia','mes','ano')) %>%
+  mutate_at(c("dia","ano"),as.numeric) 
+
+base_dados <- rename(base_dados,c(artista=artist, musica = track)) 
+
+base_dados_30 <- base_dados %>% head(30)
+
+ DT::datatable (tail(base_dados_30, 30), 
+          rownames = FALSE, 
+          caption = htmltools::tags$caption(
+            style = 'caption-side: bottom; text-align: center;' 
+            ),
+          class = 'display nowrap', 
+          options = list (dom = 'ltip', 
+                         scrollX = TRUE, 
+                         fixedColumns = FALSE, 
+                         lengthMenu = c(10, 30)))
+
+```
+
+As principais variáveis disponíveis na base de dados são as seguintes:
+
+```{r, echo=FALSE, warning=FALSE}
+names(base_dados) 
+  
+```
+
+## Caracterização do Banco de Dados
+
+Realizando-se uma caracterização da base de dados, avalia-se que ao todo tem-se avaliados 1045 artistas e um total de 31439 streams, como apresentado na tabela abaixo. Apresenta-se também o nome de todos os artistas presentes a seguir.
+
+
+```{r, message = FALSE, warning=FALSE, echo = FALSE}
+base_dados <- scrobbles %>% select(-uts, -album_mbid, -artist_mbid, -track_mbid) %>% 
+  separate(utc_time,c('dia','mes','ano')) %>%
+  mutate_at(c("dia","ano"),as.numeric) 
+
+base_dados <- rename(base_dados,c(artista=artist, musica = track)) 
+
+base_dados_30 <- base_dados %>% head(30) %>%  view()
+```
+
+```{r, message = FALSE, warning=FALSE, echo = FALSE, fig.height=10, fig.width=8 }
+
+stream_total <- base_dados %>%  nrow()
+ 
+  Artistas_unicos <-  base_dados$artista %>% unique() 
+
+  Artistas_unicos <- as.data.frame(Artistas_unicos)
+  
+  artistas_total <- Artistas_unicos %>%  nrow()
+  
+  Resumo <- tibble( Artistas = artistas_total, Stream = stream_total)
+
+```
+
+```{r, message = FALSE, warning=FALSE, echo = FALSE, fig.height=10, fig.width=8}
+ Resumo %>% 
+  head() %>% 
+  knitr::kable()
+```
+
+```{r, message = FALSE, warning=FALSE, echo = FALSE, fig.height=10, fig.width=8}
+
+Artistas_unicos <-  base_dados$artista %>% unique() 
+Artistas_unicos <- as.data.frame(Artistas_unicos)
+  
+x <-  as.data.frame(Artistas_unicos$Artista)
+
+DT::datatable (tail( x, 1045), 
+          rownames = FALSE, 
+          colnames = "Artistas",
+          caption = htmltools::tags$caption(
+            style = 'caption-side: bottom; text-align: center;' 
+            ),
+          class = 'display nowrap', 
+          options = list (dom = 'ltip', 
+                         scrollX = TRUE, 
+                         fixedColumns = FALSE, 
+                         lengthMenu = c(10, 1045)))
+```
+
+
+# Análise dos dados
+
+## Análise dados totais
+
+### Artistas mais escutados 
+
+Primeiramente, a fim de avaliar os artistas que mais escutei ao longo de toda a série analisada
+elaborei um ranking em função da quantidade de vezes que cada artista teve sua música por mim
+reproduzida. Para tanto, em função da extensão do banco de dados, busquei limitar a análise aos 10 artistas mais escutados, seguido da quantidade de vezes que eles foram escutados. 
+
+```{r Plot1, echo=FALSE, warning=FALSE, fig.align="center", fig.width = 9}
+
+base_dados %>% group_by(artista) %>% 
+  summarise(stream = n()) %>% 
+  arrange(desc(stream)) %>% 
+  head(10) %>% 
+  mutate(artista = reorder(artista, stream)) %>% 
+  ggplot()+
+  geom_col(aes(x = stream, y = artista, fill = artista),
+           show.legend = FALSE,
+           )+
+  scale_color_continuous()+
+  labs(x = "Stream",
+       y = "Arista",
+       title = "Figura 1: Artistas mais escutados",
+       fill = "Artista"
+    ) +
+  xlim(0,1500)+
+ theme_bw() + 
+  geom_label(aes(x = stream, y = artista, label = stream),
+             hjust = -0.2,
+             vjust = 0.3,
+             alpha = 0.5,
+             show.legend = FALSE)+
+scale_fill_viridis_d(option = "mako")
+```
+
+Dos artistas apresentados no gráfico acima, o grupo BTS representa o artista mais escutado. É interessante observar que, exceto pelos dois primeiros artistas, todos os outros possuem valores
+de streams bem próximos uns dos outros, quando não iguais. Porém, a partir do terceiro artista (Conan Gray) avalia-se uma diferença de 405 streams para o segundo (Tomorrow X Together) e de 640 streams para o primeiro (BTS). 
+
+### Albuns mais escutados 
+
+Através da base também se faz possível a avaliação dos álbuns mais escutados, apresentados abaixo:
+
+```{r, echo=FALSE, warning=FALSE, message = FALSE, fig.align="center", fig.width = 9}
+
+artistas_album <- base_dados  %>% group_by(album,artista) %>% 
+  summarise(stream = n()) %>% 
+  arrange(desc(stream)) %>% head(10) %>% select(artista)
+
+
+base_dados %>% group_by(album) %>% 
+  summarise(stream = n()) %>% 
+  arrange(desc(stream))%>% 
+  head(10) %>% 
+  mutate(album = reorder(album, stream)) %>% 
+  ggplot()+
+  geom_col(aes(x = stream, y = album, fill = album),
+           show.legend = FALSE,
+  )+
+  scale_color_continuous()+
+  labs(x = "Stream",
+       y = "Álbum",
+       title = "Figura 2: Álbuns mais escutados",
+       fill = "Álbum"
+  ) +
+  xlim(0,700)+
+  theme_bw() + 
+  geom_label(aes(x = stream, y = album, label = stream),
+             hjust = -0.5,
+             vjust = 0.3,
+             alpha = 0.5,
+             show.legend = FALSE)+
+  geom_text_repel(aes(x = stream, y = album, label = artistas_album$artista),
+                  nudge_x = 130,
+                  nudge_y = .1,
+                  min.segment.length = Inf,
+                  alpha = 0.5
+  )+
+  
+  scale_fill_viridis_d(option = "mako")
+
+```
+
+
+O resultado indica os álbuns Boy in Jeans (Ryan Beatty), Kid Krow (Conan Gray) e Happier Than Ever (Billie Eilish) como os mais escutados. Dentre os artistas apresentados avalia-se que 50% deles estavam também presentes dentre os artistas mais escutados, além disso, diferentemente do primeiro gráfico, todos apresentam valores de streams com pouca diferença entre si. 
+
+
+### Músicas mais escutadas
+
+Outra análise interessante de ser realizada diz respeito a avaliação das músicas mais escutadas na série analisada. 
+
+```{r, echo=FALSE, warning=FALSE, message = FALSE, fig.align="center", fig.width = 9}
+base_dados %>% group_by(musica,artista) %>% 
+  summarise(stream = n()) %>% 
+  arrange(desc(stream)) %>% select(artista, musica:stream) %>% 
+  head(10) %>% 
+ mutate(artista = reorder(artista, stream)) %>% 
+  ggplot()+
+  geom_col(aes(x = stream, y = musica, fill = artista),
+           show.legend = TRUE,
+  )+
+  scale_color_continuous()+
+  labs(x = "Stream",
+       y = "Música",
+       title = "Figura 3: Músicas mais escutadas",
+       fill = "Artista"
+  ) +
+  xlim(0,150)+
+  theme_bw() + 
+  geom_label(aes(x = stream, y = musica, label = stream),
+             hjust = -0.2,
+             vjust = 0.3,
+             alpha = 0.5,
+             show.legend = FALSE)+
+scale_fill_viridis_d(option = "mako")
+```
+
+Tem-se como música mais escutada Sweet Night (V/Taehyung), seguida por Intermission:Flower (Zayn Malik) e Easy (Troye Sivan). 
+
+## Análises Filtradas
+
+Tendo-se analisado os dados considerando sua totalidade, agora realiza-se uma análise adotando os anos da série enquanto um critério de agrupamento, a fim de que se possa avaliar também os artistas, álbuns e músicas mais escutados por ano de abrangência. Tais resultados e análises são apresentados a seguir.
+
+### Streams por ano da série histórica
+
+```{r, echo=FALSE, warning=FALSE, message = FALSE, fig.align="center", fig.width = 9}
+scrobbles_simples <- select(scrobbles, -uts, -album_mbid, -artist_mbid, -track_mbid)
+
+stream_ano <- scrobbles_simples %>% separate(utc_time,c('dia','mes','ano')) %>% 
+  group_by(ano) %>% 
+  summarise(stream = n()) %>% 
+  arrange(desc(stream))
+  
+stream_ano %>% 
+  ggplot()+
+  geom_col(aes(x = stream, y = ano, fill = ano), show.legend = FALSE)+
+  scale_fill_viridis_d(option = "mako")+
+  theme_bw()+
+  labs(
+    x = "Stream",
+    y = "Ano",
+    title ="Figura 4: Streams por ano",
+    fill = "Álbum")+ 
+  geom_label(aes(x = stream, y = ano, label = stream),
+             position = position_dodge(width = 1),
+             hjust = -0.5,
+             vjust = 0.5,
+             alpha = 0.5,
+             show.legend = FALSE
+             )+
+  xlim(0,20000)
+```
+
+Primeiramente, se avaliou a quantidade de streams por ano da série. A partir do gráfico acima observa-se que a maior quantidade de streams ocorreu no ano de 2021 (até o mês de outubro). Deve-se ressaltar que a grande variação nos resultados está associado ao período de abrangência dos dados de cada ano. 
+
+### Músicas mais escutadas por ano da série histórica
+
+```{r, echo=FALSE, warning=FALSE, message = FALSE, fig.align="center", fig.width = 9}
+
+base_dados_2 <- scrobbles %>% select(-uts, -album_mbid, -artist_mbid, -track_mbid)
+
+base_dados_2 <- rename(base_dados_2,c(artista=artist, musica = track))
+
+
+faixas_ano <- base_dados_2 %>% separate(utc_time,c('dia','mes','ano')) %>% group_by(mes,musica,ano,artista) %>%
+  summarise(stream = n()) %>%  arrange(desc(ano),desc(stream)) 
+
+x <- faixas_ano %>% group_by(ano,musica) %>% summarise(soma = sum(stream)) %>% arrange(ano,desc(soma)) %>% 
+  filter(ano == 2019) %>% head(3)
+
+y <- faixas_ano %>% group_by(ano,musica) %>% summarise(soma = sum(stream)) %>% arrange(ano,desc(soma)) %>% 
+  filter(ano == 2020) %>% head(3)
+
+z <- faixas_ano %>% group_by(ano,musica) %>% summarise(soma = sum(stream)) %>% arrange(ano,desc(soma)) %>% 
+  filter(ano == 2021) %>% head(3)
+
+Faixas_ano <- bind_rows(x,y,z) 
+
+Faixas_ano %>%
+  ggplot() +
+  geom_col(aes(x=soma, y = ano, col =musica, fill = musica), position = "dodge",
+           binwidth = 100000000, 
+           color = "white")+
+  scale_fill_viridis_d(option = "mako")+
+  
+  geom_label(aes(x = soma, y = ano, fill = musica, label = soma),
+             position = position_dodge(width = 1),
+             hjust = -0.5,
+             vjust = 0.4,
+             alpha = 0.5,
+             show.legend = FALSE)+ 
+  xlim(0,110)+
+  theme_bw()+
+  theme(
+    plot.title = element_text(hjust=.5),
+    legend.position = 'right'
+  ) +
+  labs(
+    x = "Stream",
+    y = "Ano",
+    title ="Figura 5: Músicas mais escutadas por ano",
+    fill = "Música"
+  )
+
+```
+
+A partir do gráfico avalia-se que as músicas mais escutadas em cada ano foram, respectivamente, Watermelon Sugar (Harry Styles), Sweet Night (V/Taehyung) e Intermission: Flower (Zayn Malik). Além de indicarem uma preferência pessoal pelas faixas, os dados indicam que em 2021 minha faixa musical favorita foi escutada mais vezes que a de 2020, mesmo antes da completa finalização do ano. 
+
+### Artistas mais escutados por ano da série histórica
+
+```{r, echo=FALSE, warning=FALSE, message = FALSE, fig.align="center", fig.width = 9}
+
+base_dados_2 <- scrobbles %>% select(-uts, -album_mbid, -artist_mbid, -track_mbid)
+
+base_dados_2 <- rename(base_dados_2,c(artista=artist, musica = track))
+
+artistas_ano <- base_dados_2 %>% separate(utc_time,c('dia','mes','ano')) %>% 
+  group_by(mes,musica,ano,artista) %>%
+  summarise(stream = n()) %>%  arrange(desc(ano),desc(stream))
+
+a <- artistas_ano %>% group_by(ano,artista) %>% summarise(soma = sum(stream)) %>% arrange(ano,desc(soma)) %>% 
+  filter(ano == 2019) %>% head(3)
+
+b <- artistas_ano %>% group_by(ano,artista) %>% summarise(soma = sum(stream)) %>% arrange(ano,desc(soma)) %>% 
+  filter(ano == 2020) %>% head(3)
+
+c <- artistas_ano %>% group_by(ano,artista) %>% summarise(soma = sum(stream)) %>% arrange(ano,desc(soma)) %>% 
+  filter(ano == 2021) %>% head(3)
+
+Artistas_ano <- bind_rows(a,b,c) 
+
+Artistas_ano %>%
+  ggplot() +
+  geom_col(aes(x=ano, y = soma, col = artista, fill = artista), position = "dodge",
+           binwidth = 100000000,
+           color = "white")+
+  scale_fill_viridis_d(option = "mako")+
+  theme_bw()+
+  theme(
+    plot.title = element_text(hjust=.5),
+    legend.position = 'right'
+  ) +
+  geom_label(aes(x = ano, y = soma, fill = artista, label = soma),
+             position = position_dodge(width = 1),
+             hjust = 0.5,
+             vjust = -1.0,
+             alpha = 0.5,
+             show.legend = FALSE)+
+  ylim(0,1000)+
+  
+  labs(
+    x = "Ano", 
+    y = "Stream",
+    title = "Figura 6: Artistas mais escutados em cada ano",
+    fill= "Artista"
+  )
+```
+
+A análise a respeito dos artistas mais escutados permitiu avaliar que meus artistas mais escutados por ano, respectivamente, foram Harry Styles, BTS e Between Friends. Observa-se que a maior quantidade de streams esteve associada ao ano de 2020 e que no anos de 2020 e 2021 o grupo musical Tomorrow x Together ocupou duas vezes a segunda posição. 
+
+
+### Álbuns mais escutados por ano da série histórica
+
+```{r, echo=FALSE, warning=FALSE, message = FALSE, fig.align="center", fig.width = 9}
+
+base_dados_2 <- scrobbles %>% select(-uts, -album_mbid, -artist_mbid, -track_mbid)
+
+base_dados_2 <- rename(base_dados_2,c(artista=artist, musica = track))
+
+albuns_ano <- base_dados_2 %>% separate(utc_time,c('dia','mes','ano')) %>% group_by(mes,album,ano,artista) %>%
+    summarise(stream = n()) %>%  arrange(desc(ano),desc(stream)) 
+  
+  d <- albuns_ano %>% group_by(ano,album,artista) %>% summarise(soma = sum(stream)) %>% arrange(ano,desc(soma)) %>% 
+    filter(ano == 2019) %>% head(3)
+  
+  e <- albuns_ano %>% group_by(ano,album,artista) %>% summarise(soma = sum(stream)) %>% arrange(ano,desc(soma)) %>% 
+    filter(ano == 2020) %>% head(3)
+  
+  f <- albuns_ano %>% group_by(ano,album,artista) %>% summarise(soma = sum(stream)) %>% arrange(ano,desc(soma)) %>% 
+    filter(ano == 2021) %>% head(3)
+  
+  Albuns_ano <- bind_rows(d,e,f) 
+  
+  Albuns_ano %>%
+    ggplot() +
+    geom_col(aes(x=soma, y = ano, col = artista, fill = album), position = "dodge",
+             binwidth = 100000000, 
+             color = "white")+
+    scale_fill_viridis_d(option = "mako")+
+    
+    geom_label(aes(x = soma, y = ano, fill = album, label = soma),
+               position = position_dodge(width = 1),
+               hjust = -0.5,
+               vjust = 0.5,
+               alpha = 0.5,
+               show.legend = FALSE,
+               inherit.aes = TRUE)+ 
+    theme_bw()+
+    theme(
+      plot.title = element_text(hjust=.5),
+      legend.position = 'right'
+    ) +
+    labs(
+      x = "Stream",
+      y = "Ano",
+      title ="Figura 7: Álbuns mais ouvidos por ano",
+      fill = "Álbum"
+    )+
+    xlim(0,450)
+    
+```
+
+Acerca dos álbuns mais escutados, tem-se que ocuparam por ano, respectivamente, a posição principal os álbuns "Nothing Happens" (Wallows), "Nectar" (Joji) e "Happier Than Ever" (Billie Eilish). Assim como para o caso das músicas mais escutadas, observa-se para o ano de 2021 uma maior quantidade de streams no álbum mais ouvido, mesmo antes do final do ano. 
+
+
+# Perfil Musical e Conclusão
+
+Os dados levantados a respeito da dinâmica de consumo de música nos últimos anos, além de avaliar os artistas, álbuns e músicas preferidos, e, portanto, mais escutados, permitem observar essa distribuição ao longo dos anos e com a respectiva frequência de reprodução. Dessa forma, se faz possível traçar um perfil musical que perpassa minhas preferências neste âmbito.
+
+Trazendo uma breve retrospectiva dos resultados obtidos, tive, quando considerado todos os dados da base, que meu artista, álbum e música mais escutados foram respectivamente BTS, Boy in Jeans e Sweet Night. Com relação aos artistas, pode-se avaliar uma distribuição de “streams” com maior variação dos primeiros colocados para com os restantes, do que para as outras análises. Dessa forma, pode-se inferir que possuo padrões de streams que variam entre as categorias, além disso, uma vez que a contagem por artista implica na contagem de toda e qualquer música reproduzida que pertença à este, avalia-se que para os primeiros tem-se um comportamento de consumo que independe do álbum, mas que se estende por toda a discografia do artista.  
+
+Já a respeito das análises filtradas por ano, observa-se que minha maior totalidade de streams ocorreu no ano de 2021¹ e cuja distribuição de artistas, álbuns e músicas mais escutados foi bem variada, com apenas um artista (Tomorrow x Together) repetindo em dois dos anos. Ademais, apesar de não informada nas bases, os artistas principais apresentados caracterizam gêneros musicais pertencentes ao Pop, Folk, Indie Rock, Kpop e Indie Pop. 
+
+De forma geral, traça-se o perfil de uma pessoa que disponibiliza grande parte de suas horas diárias para escutar músicas, com artistas variados, mas cuja preferência é bem definida, principalmente com relação aos álbuns e músicas mais escutadas. A seguir, apresenta-se os respectivos artista, álbum e música com maior quantidade de reprodução.
+
+¹ Considerando se ter dados referentes à apenas um mês do ano de 2019
+
+Artista mais escutado: **BTS**
+
+```{r, fig.align='center', out.width= "30%", echo=FALSE, warning=FALSE, message = FALSE }
+
+knitr::include_graphics("imagens/BTS.jpg")
+
+```
+
+Álbum mais escutado: **Boy in Jeans**
+
+```{r,fig.align='center', out.width= "30%", echo=FALSE, warning=FALSE, message = FALSE}
+knitr::include_graphics("imagens/boyinjeans.jpg")
+
+```
+
+Música mais escutada: **Sweet Night**
+
+```{r,fig.align='center', out.width= "30%", echo=FALSE, warning=FALSE, message = FALSE}
+knitr::include_graphics("imagens/sweetnight.jpg")
+```
+
+
+# Referências
+
+- [Portal ShowmeTech](https://www.showmetech.com.br/last-fm-como-usar/)
+- [ Material do curso 'R para Ciência de Dados I'](https://curso-r.github.io/main-r4ds-1/)
